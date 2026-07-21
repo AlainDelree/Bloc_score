@@ -128,6 +128,37 @@
   }
   #fileStatus{font-size:11px;line-height:1.4;}
 
+  .gh-block{margin-bottom:14px;}
+  .gh-sep{
+    font-size:10px;
+    letter-spacing:0.08em;
+    color:var(--cream-dim);
+    text-align:center;
+    margin:16px 0 10px;
+    opacity:0.7;
+  }
+  .gh-token{
+    width:100%;
+    background:var(--ink-3);
+    color:var(--cream);
+    border:none;
+    border-radius:9px;
+    padding:10px 12px;
+    margin-top:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    box-shadow:inset 0 0 0 2px var(--line);
+  }
+  .gh-token:focus-visible{outline:2px solid var(--mustard);outline-offset:2px;}
+  .gh-status{
+    font-size:11px;
+    line-height:1.4;
+    margin:8px 0 0 !important;
+    text-align:center;
+  }
+  .gh-status.write{color:var(--teal);}
+  .gh-status.read{color:var(--mustard);}
+
   .combo-badge{
     display:none;
     align-items:center;
@@ -369,6 +400,15 @@
       <button class="ctl" id="importBtn">⬆️ Importer</button>
       <input type="file" id="importInput" accept="application/json" style="display:none">
     </div>
+    <div class="gh-block" id="githubBlock">
+      <div class="gh-sep">— ou dépôt GitHub (tous navigateurs) —</div>
+      <div class="file-actions">
+        <button class="ctl" id="githubLoadBtn">🌐 Charger (GitHub)</button>
+        <button class="ctl" id="githubSaveBtn">💾 Enregistrer (GitHub)</button>
+      </div>
+      <input type="password" id="githubToken" class="gh-token" placeholder="Token GitHub (écriture, jamais stocké)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <p id="githubStatus" class="gh-status">Mode GitHub inactif</p>
+    </div>
     <button id="closeScoresBtn">Fermer</button>
   </div>
 </div>
@@ -419,14 +459,141 @@
 
   // --- persistance par fichier disque (pas de localStorage) ---
   const supportsFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
-  let topScores = [];      // liste en mémoire, source de vérité = le fichier connecté
+  let topScores = [];      // liste en mémoire, source de vérité = le fichier/dépôt connecté
   let fileHandle = null;   // FileSystemFileHandle une fois connecté
   let fileName = null;
+
+  // --- persistance par dépôt GitHub (marche sur tous les navigateurs) ---
+  const GH_OWNER = 'AlainDelree';
+  const GH_REPO  = 'Bloc_score';
+  const GH_PATH  = 'scores.json';
+  const GH_RAW   = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/${GH_PATH}`;
+  const GH_API   = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}`;
+  let githubMode  = false;   // true quand le mode GitHub est actif (exclusif du fichier local)
+  let githubToken = '';      // token en mémoire uniquement, jamais persisté sur disque
 
   const fileTypes = [{description:'Scores BLOC (JSON)', accept:{'application/json':['.json']}}];
 
   function sortAndTrim(list){
     return list.slice().sort((a,b)=>b.score-a.score).slice(0,10);
+  }
+
+  // fusionne deux listes de {score,date} en dédupliquant, puis tri/troncature
+  function mergeScores(a, b){
+    const merged = {};
+    a.concat(b).forEach(e=>{
+      if(e && typeof e.score==='number'){
+        merged[(e.date||'') + '|' + e.score] = {score:e.score, date:e.date};
+      }
+    });
+    return sortAndTrim(Object.values(merged));
+  }
+
+  // encodage/décodage base64 sûrs pour l'UTF-8
+  function b64Encode(str){ return btoa(unescape(encodeURIComponent(str))); }
+  function b64Decode(str){
+    return decodeURIComponent(Array.prototype.map.call(atob(str.replace(/\n/g,'')),
+      c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+  }
+
+  function ghHeaders(){
+    const h = {'Accept':'application/vnd.github+json'};
+    if(githubToken) h['Authorization'] = 'token ' + githubToken;
+    return h;
+  }
+
+  // Lecture publique (sans token) via raw.githubusercontent — 404 = liste vide
+  async function readFromGitHub(){
+    const res = await fetch(GH_RAW, {cache:'no-store'});
+    if(res.status === 404) return [];
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const parsed = await res.json();
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  // Récupère le sha courant + le contenu distant décodé (pour fusion avant écriture)
+  async function fetchGitHubMeta(){
+    const res = await fetch(GH_API, {headers:ghHeaders(), cache:'no-store'});
+    if(res.status === 404) return {sha:null, remote:[]};
+    if(res.status === 401){ const e = new Error('unauthorized'); e.code = 401; throw e; }
+    if(!res.ok){ const e = new Error('HTTP ' + res.status); e.code = res.status; throw e; }
+    const data = await res.json();
+    let remote = [];
+    try{
+      remote = JSON.parse(b64Decode(data.content || ''));
+      if(!Array.isArray(remote)) remote = [];
+    }catch(_){ remote = []; }
+    return {sha:data.sha, remote};
+  }
+
+  // Écriture (nécessite un token). Fusionne avec le distant, gère 401 / 409 / réseau.
+  async function writeToGitHub(scoreForMsg){
+    if(!githubMode || !githubToken) return;
+    async function attempt(){
+      const {sha, remote} = await fetchGitHubMeta();
+      topScores = mergeScores(topScores, remote);   // ne jamais écraser les scores distants
+      const body = {
+        message: `Score : ${scoreForMsg != null ? scoreForMsg : (topScores[0] ? topScores[0].score : 0)} pts`,
+        content: b64Encode(JSON.stringify(topScores, null, 2))
+      };
+      if(sha) body.sha = sha;   // sha absent = création
+      return fetch(GH_API, {method:'PUT', headers:ghHeaders(), body:JSON.stringify(body)});
+    }
+    try{
+      let res = await attempt();
+      if(res.status === 409) res = await attempt();   // conflit de sha : relire puis retenter une fois
+      if(res.status === 401){
+        githubToken = '';
+        if(githubTokenInput) githubTokenInput.value = '';
+        updateGithubStatus();
+        toast('Token GitHub invalide — repassé en lecture seule');
+        return;
+      }
+      if(!res.ok){ toast('Écriture GitHub impossible (' + res.status + ')'); return; }
+      toast('Score enregistré sur GitHub');
+    }catch(e){
+      if(e && e.code === 401){
+        githubToken = '';
+        if(githubTokenInput) githubTokenInput.value = '';
+        updateGithubStatus();
+        toast('Token GitHub invalide — repassé en lecture seule');
+        return;
+      }
+      // réseau absent : on garde le score en mémoire, on ne plante pas le jeu
+      toast('Réseau GitHub indisponible — score gardé en mémoire');
+    }
+  }
+
+  // Active le mode GitHub : désactive le fichier local (exclusif) et charge le distant
+  async function activateGitHub(){
+    fileHandle = null;
+    fileName = null;
+    githubMode = true;
+    updateFileStatus();
+    updateGithubStatus();
+    try{
+      const remote = await readFromGitHub();
+      topScores = mergeScores(topScores, remote);
+      renderTopList(standaloneTopList, gameOver ? score : undefined);
+      updateScores();
+      toast(`GitHub : ${remote.length} score(s) chargé(s)`);
+    }catch(e){
+      toast('Lecture GitHub impossible (réseau ?)');
+    }
+  }
+
+  function updateGithubStatus(){
+    if(!githubStatusEl) return;
+    githubStatusEl.classList.remove('write','read');
+    if(!githubMode){
+      githubStatusEl.textContent = 'Mode GitHub inactif';
+    } else if(githubToken){
+      githubStatusEl.textContent = '✓ Connecté en écriture';
+      githubStatusEl.classList.add('write');
+    } else {
+      githubStatusEl.textContent = 'Lecture seule (pas de token)';
+      githubStatusEl.classList.add('read');
+    }
   }
 
   async function writeToDisk(){
@@ -449,8 +616,10 @@
       try{ parsed = JSON.parse(text); if(!Array.isArray(parsed)) parsed = []; }catch(e){ parsed = []; }
       fileHandle = handle;
       fileName = handle.name;
+      githubMode = false;   // exclusif du mode GitHub
       topScores = sortAndTrim(parsed);
       updateFileStatus();
+      updateGithubStatus();
       renderTopList(standaloneTopList, gameOver ? score : undefined);
       updateScores();
       toast(`Fichier connecté · ${topScores.length} score(s) chargé(s)`);
@@ -462,9 +631,11 @@
       const handle = await window.showSaveFilePicker({suggestedName:'bloc-scores.json', types:fileTypes});
       fileHandle = handle;
       fileName = handle.name;
+      githubMode = false;   // exclusif du mode GitHub
       topScores = sortAndTrim(topScores);
       await writeToDisk();
       updateFileStatus();
+      updateGithubStatus();
       toast('Nouveau fichier de scores créé');
     }catch(e){ /* annulé par l'utilisateur */ }
   }
@@ -500,15 +671,21 @@
   }
 
   function updateFileStatus(){
-    if(fileStatusEl){
-      fileStatusEl.textContent = fileHandle ? `Fichier connecté : ${fileName}` : 'Aucun fichier connecté — les scores ne seront pas conservés après fermeture.';
+    if(!fileStatusEl) return;
+    if(githubMode){
+      fileStatusEl.textContent = 'Mode GitHub actif — scores partagés via le dépôt (tous navigateurs).';
+    } else if(fileHandle){
+      fileStatusEl.textContent = `Fichier connecté : ${fileName}`;
+    } else {
+      fileStatusEl.textContent = 'Aucun fichier connecté — les scores ne seront pas conservés après fermeture.';
     }
   }
 
   function recordScore(newScore){
     topScores.push({score:newScore, date:new Date().toISOString()});
     topScores = sortAndTrim(topScores);
-    if(fileHandle) writeToDisk();
+    if(githubMode) writeToGitHub(newScore);
+    else if(fileHandle) writeToDisk();
     return topScores;
   }
 
@@ -517,7 +694,7 @@
     if(topScores.length===0){
       const li = document.createElement('li');
       li.className = 'empty-row';
-      li.textContent = fileHandle ? 'Aucune partie enregistrée pour le moment.' : 'Connecte ou crée un fichier pour garder un historique entre deux sessions.';
+      li.textContent = (fileHandle || githubMode) ? 'Aucune partie enregistrée pour le moment.' : 'Connecte un fichier ou GitHub pour garder un historique entre deux sessions.';
       el.appendChild(li);
       return;
     }
@@ -575,6 +752,10 @@
   const importInput = document.getElementById('importInput');
   const fsButtons = document.getElementById('fsButtons');
   const fallbackButtons = document.getElementById('fallbackButtons');
+  const githubLoadBtn = document.getElementById('githubLoadBtn');
+  const githubSaveBtn = document.getElementById('githubSaveBtn');
+  const githubTokenInput = document.getElementById('githubToken');
+  const githubStatusEl = document.getElementById('githubStatus');
   if(supportsFS){
     fallbackButtons.style.display = 'none';
   } else {
@@ -978,6 +1159,7 @@
 
   trophyBtn.addEventListener('click', ()=>{
     updateFileStatus();
+    updateGithubStatus();
     renderTopList(standaloneTopList, gameOver ? score : undefined);
     scoresOverlay.classList.add('show');
   });
@@ -991,6 +1173,22 @@
   if(importInput) importInput.addEventListener('change', (e)=>{
     if(e.target.files[0]) importScores(e.target.files[0]);
     importInput.value = '';
+  });
+  if(githubLoadBtn) githubLoadBtn.addEventListener('click', activateGitHub);
+  if(githubSaveBtn) githubSaveBtn.addEventListener('click', ()=>{
+    if(!githubMode){ toast('Charge d’abord depuis GitHub (🌐)'); return; }
+    if(!githubToken){ toast('Saisis un token GitHub pour écrire'); return; }
+    writeToGitHub();
+  });
+  if(githubTokenInput) githubTokenInput.addEventListener('input', ()=>{
+    githubToken = githubTokenInput.value.trim();
+    if(githubToken && !githubMode){   // saisir un token bascule en mode GitHub (exclusif du fichier local)
+      githubMode = true;
+      fileHandle = null;
+      fileName = null;
+      updateFileStatus();
+    }
+    updateGithubStatus();
   });
 
   restartBtn.addEventListener('click', startGame);
