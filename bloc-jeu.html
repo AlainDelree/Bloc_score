@@ -338,6 +338,17 @@
     box-shadow:0 4px 0 rgba(0,0,0,0.3);
   }
   .overlay button:active{transform:translateY(3px);box-shadow:none;}
+  .overlay .overlay-actions{
+    display:flex;
+    gap:10px;
+    justify-content:center;
+    flex-wrap:wrap;
+  }
+  .overlay button.secondary{
+    background:var(--ink-3);
+    color:var(--cream);
+    border:1px solid var(--line);
+  }
 
   footer.note{
     margin-top:18px;
@@ -382,7 +393,10 @@
     <p>Plus aucune des trois pièces ne rentre sur la grille.</p>
     <div class="final-score" id="finalScore">0</div>
     <ol class="top-list" id="finalTopList"></ol>
-    <button id="playAgainBtn">Rejouer</button>
+    <div class="overlay-actions">
+      <button id="playAgainBtn">Rejouer</button>
+      <button id="quitBtn" class="secondary">Quitter</button>
+    </div>
   </div>
 </div>
 
@@ -1195,6 +1209,10 @@
   playAgainBtn.addEventListener('click', ()=>{
     overlay.classList.remove('show');
     startGame();
+  });
+  const quitBtn = document.getElementById('quitBtn');
+  quitBtn.addEventListener('click', ()=>{
+    overlay.classList.remove('show');
   });
 
   function startGame(){
