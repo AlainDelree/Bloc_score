@@ -68,6 +68,21 @@
     line-height:1;
   }
   .scores .best .num{color:var(--teal);}
+  .name-input{
+    width:130px;
+    background:var(--ink-3);
+    color:var(--cream);
+    border:none;
+    border-radius:7px;
+    padding:5px 8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    text-align:right;
+    box-shadow:inset 0 0 0 2px var(--line);
+    margin-bottom:8px;
+  }
+  .name-input:focus-visible{outline:2px solid var(--mustard);outline-offset:2px;}
+  .name-input::placeholder{color:var(--cream-dim);}
 
   .trophy-btn{
     background:none;
@@ -116,6 +131,67 @@
   }
   .top-list li.current .rank, .top-list li.current .val{color:var(--coral);}
   .top-list .empty-row{color:var(--cream-dim);font-size:12px;padding:10px 4px;}
+
+  .top-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+    text-align:left;
+  }
+  .top-table thead th{
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:10px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--cream-dim);
+    padding:6px 6px;
+    border-bottom:1px solid var(--line);
+    position:sticky;
+    top:0;
+    background:var(--ink-2);
+  }
+  .top-table tbody td{
+    padding:8px 6px;
+    border-bottom:1px solid var(--line);
+    vertical-align:baseline;
+  }
+  .top-table tbody tr:last-child td{border-bottom:none;}
+  .top-table .rank{
+    font-family:'Fraunces', serif;
+    font-weight:800;
+    color:var(--cream-dim);
+    width:38px;
+    white-space:nowrap;
+  }
+  .top-table .name{
+    color:var(--cream);
+    max-width:120px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .top-table .val{
+    font-family:'Fraunces', serif;
+    font-weight:700;
+    font-size:17px;
+    color:var(--mustard);
+    text-align:right;
+    white-space:nowrap;
+  }
+  .top-table .date{
+    color:var(--cream-dim);
+    font-size:12px;
+    text-align:right;
+    white-space:nowrap;
+  }
+  .top-table tr.current td{
+    background:rgba(232,169,58,0.14);
+  }
+  .top-table tr.current td:first-child{border-top-left-radius:8px;border-bottom-left-radius:8px;}
+  .top-table tr.current td:last-child{border-top-right-radius:8px;border-bottom-right-radius:8px;}
+  .top-table tr.current .rank, .top-table tr.current .val{color:var(--coral);}
+  .top-table tr.current .name{color:var(--cream);}
 
   .overlay .file-actions{
     display:flex;
@@ -364,6 +440,7 @@
   <header class="hd">
     <div class="title">BLOC<small>fait pour Fred · pas pour jeu.fr</small></div>
     <div class="scores">
+      <div class="row"><input type="text" id="playerName" class="name-input" placeholder="Nom" maxlength="20" autocomplete="off" aria-label="Ton nom (Anonyme si vide)"></div>
       <div class="row"><span class="num" id="scoreNum">0</span>score</div>
       <div class="row best"><span class="num" id="bestNum">0</span>meilleur</div>
       <button class="trophy-btn" id="trophyBtn" aria-label="Voir les 10 meilleurs scores">🏆</button>
@@ -392,9 +469,10 @@
     <h2>Partie finie</h2>
     <p>Plus aucune des trois pièces ne rentre sur la grille.</p>
     <div class="final-score" id="finalScore">0</div>
-    <ol class="top-list" id="finalTopList"></ol>
+    <div class="top-list" id="finalTopList"></div>
     <div class="overlay-actions">
       <button id="playAgainBtn">Rejouer</button>
+      <button id="showScoresBtn" class="secondary">Meilleurs scores</button>
       <button id="quitBtn" class="secondary">Quitter</button>
     </div>
   </div>
@@ -402,9 +480,9 @@
 
 <div class="overlay" id="scoresOverlay">
   <div class="card">
-    <h2>Top 10</h2>
+    <h2>Meilleurs scores</h2>
     <p id="fileStatus">Aucun fichier connecté — les scores ne seront pas conservés après fermeture.</p>
-    <ol class="top-list" id="standaloneTopList"></ol>
+    <div class="top-list" id="standaloneTopList"></div>
     <div class="file-actions" id="fsButtons">
       <button class="ctl" id="connectFileBtn">📂 Connecter un fichier</button>
       <button class="ctl" id="createFileBtn">🆕 Créer un fichier</button>
@@ -476,6 +554,8 @@
   let topScores = [];      // liste en mémoire, source de vérité = le fichier/dépôt connecté
   let fileHandle = null;   // FileSystemFileHandle une fois connecté
   let fileName = null;
+  let playerName = '';     // nom courant du joueur (mémoire seule, pas de localStorage)
+  let lastRecorded = null; // dernière entrée créée par recordScore() → surbrillance du jour
 
   // --- persistance par dépôt GitHub (marche sur tous les navigateurs) ---
   const GH_OWNER = 'AlainDelree';
@@ -492,12 +572,14 @@
     return list.slice().sort((a,b)=>b.score-a.score).slice(0,10);
   }
 
-  // fusionne deux listes de {score,date} en dédupliquant, puis tri/troncature
+  // fusionne deux listes de {score,date,name} en dédupliquant, puis tri/troncature
+  // (name absent dans les anciennes entrées → traité comme "Anonyme")
   function mergeScores(a, b){
     const merged = {};
     a.concat(b).forEach(e=>{
       if(e && typeof e.score==='number'){
-        merged[(e.date||'') + '|' + e.score] = {score:e.score, date:e.date};
+        const name = e.name || 'Anonyme';
+        merged[(e.date||'') + '|' + e.score + '|' + name] = {score:e.score, date:e.date, name:name};
       }
     });
     return sortAndTrim(Object.values(merged));
@@ -588,7 +670,7 @@
     try{
       const remote = await readFromGitHub();
       topScores = mergeScores(topScores, remote);
-      renderTopList(standaloneTopList, gameOver ? score : undefined);
+      renderTopList(standaloneTopList, gameOver ? lastRecorded : null);
       updateScores();
       toast(`GitHub : ${remote.length} score(s) chargé(s)`);
     }catch(e){
@@ -634,7 +716,7 @@
       topScores = sortAndTrim(parsed);
       updateFileStatus();
       updateGithubStatus();
-      renderTopList(standaloneTopList, gameOver ? score : undefined);
+      renderTopList(standaloneTopList, gameOver ? lastRecorded : null);
       updateScores();
       toast(`Fichier connecté · ${topScores.length} score(s) chargé(s)`);
     }catch(e){ /* annulé par l'utilisateur */ }
@@ -674,10 +756,8 @@
       try{ parsed = JSON.parse(reader.result); if(!Array.isArray(parsed)) parsed = []; }catch(e){
         toast('Fichier illisible'); return;
       }
-      const merged = {};
-      topScores.concat(parsed).forEach(e=>{ if(e && typeof e.score==='number') merged[e.date||Math.random()] = e; });
-      topScores = sortAndTrim(Object.values(merged));
-      renderTopList(standaloneTopList, gameOver ? score : undefined);
+      topScores = mergeScores(topScores, parsed);
+      renderTopList(standaloneTopList, gameOver ? lastRecorded : null);
       updateScores();
       toast(`${parsed.length} score(s) importé(s)`);
     };
@@ -696,35 +776,79 @@
   }
 
   function recordScore(newScore){
-    topScores.push({score:newScore, date:new Date().toISOString()});
+    const cleanName = (playerName && playerName.trim()) ? playerName.trim() : 'Anonyme';
+    const entry = {score:newScore, date:new Date().toISOString(), name:cleanName};
+    topScores.push(entry);
     topScores = sortAndTrim(topScores);
+    lastRecorded = entry;   // identité (score+date+name) de la partie qui vient de finir
     if(githubMode) writeToGitHub(newScore);
     else if(fileHandle) writeToDisk();
     return topScores;
   }
 
-  function renderTopList(el, highlightScore){
+  // ISO stockée → JJ-MM-AAAA (ex. 22-07-2026) ; chaîne vide si date absente/illisible
+  function frDate(iso){
+    if(!iso) return '';
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const yyyy = d.getFullYear();
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  // Table Place | Nom | Score | Date. highlightEntry = entrée créée par recordScore()
+  // pour la partie du jour ; ciblage précis via score+date+name (pas juste le score).
+  function renderTopList(el, highlightEntry){
     el.innerHTML = '';
     if(topScores.length===0){
-      const li = document.createElement('li');
-      li.className = 'empty-row';
-      li.textContent = (fileHandle || githubMode) ? 'Aucune partie enregistrée pour le moment.' : 'Connecte un fichier ou GitHub pour garder un historique entre deux sessions.';
-      el.appendChild(li);
+      const empty = document.createElement('div');
+      empty.className = 'empty-row';
+      empty.textContent = (fileHandle || githubMode) ? 'Aucune partie enregistrée pour le moment.' : 'Connecte un fichier ou GitHub pour garder un historique entre deux sessions.';
+      el.appendChild(empty);
       return;
     }
+    const table = document.createElement('table');
+    table.className = 'top-table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    ['Place','Nom','Score','Date'].forEach(txt=>{
+      const th = document.createElement('th');
+      th.textContent = txt;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
     topScores.forEach((entry, i)=>{
-      const li = document.createElement('li');
-      if(highlightScore!==undefined && entry.score===highlightScore) li.classList.add('current');
-      const rank = document.createElement('span');
-      rank.className = 'rank';
-      rank.textContent = (i+1)+'.';
-      const val = document.createElement('span');
+      const name = entry.name || 'Anonyme';
+      const tr = document.createElement('tr');
+      if(highlightEntry &&
+         entry.score === highlightEntry.score &&
+         entry.date === highlightEntry.date &&
+         name === (highlightEntry.name || 'Anonyme')){
+        tr.classList.add('current');
+      }
+      const place = document.createElement('td');
+      place.className = 'rank';
+      place.textContent = (i+1)+'.';
+      const nm = document.createElement('td');
+      nm.className = 'name';
+      nm.textContent = name;
+      const val = document.createElement('td');
       val.className = 'val';
       val.textContent = entry.score;
-      li.appendChild(rank);
-      li.appendChild(val);
-      el.appendChild(li);
+      const dt = document.createElement('td');
+      dt.className = 'date';
+      dt.textContent = frDate(entry.date);
+      tr.appendChild(place);
+      tr.appendChild(nm);
+      tr.appendChild(val);
+      tr.appendChild(dt);
+      tbody.appendChild(tr);
     });
+    table.appendChild(tbody);
+    el.appendChild(table);
   }
 
   let grid = [];
@@ -753,6 +877,8 @@
   const finalScoreEl = document.getElementById('finalScore');
   const finalTopList = document.getElementById('finalTopList');
   const playAgainBtn = document.getElementById('playAgainBtn');
+  const showScoresBtn = document.getElementById('showScoresBtn');
+  const playerNameInput = document.getElementById('playerName');
   const toastEl = document.getElementById('toast');
   const trophyBtn = document.getElementById('trophyBtn');
   const scoresOverlay = document.getElementById('scoresOverlay');
@@ -883,7 +1009,7 @@
       gameOver = true;
       finalScoreEl.textContent = score;
       recordScore(score);
-      renderTopList(finalTopList, score);
+      renderTopList(finalTopList, lastRecorded);
       updateScores();
       overlay.classList.add('show');
     }
@@ -1171,12 +1297,17 @@
     if(shufflesLeft<=0) shuffleBtn.disabled = true;
   });
 
-  trophyBtn.addEventListener('click', ()=>{
+  function openScores(){
     updateFileStatus();
     updateGithubStatus();
-    renderTopList(standaloneTopList, gameOver ? score : undefined);
+    renderTopList(standaloneTopList, gameOver ? lastRecorded : null);
     scoresOverlay.classList.add('show');
+  }
+  if(playerNameInput) playerNameInput.addEventListener('input', ()=>{
+    playerName = playerNameInput.value;   // mémoire seule, utilisé au prochain recordScore()
   });
+  trophyBtn.addEventListener('click', openScores);
+  if(showScoresBtn) showScoresBtn.addEventListener('click', openScores);
   closeScoresBtn.addEventListener('click', ()=>{
     scoresOverlay.classList.remove('show');
   });
