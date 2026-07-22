@@ -479,6 +479,7 @@
       <div class="row"><span class="num" id="scoreNum">0</span>score</div>
       <div class="row best"><span class="num" id="bestNum">0</span>meilleur</div>
       <button class="trophy-btn" id="trophyBtn" aria-label="Voir les 10 meilleurs scores">🏆</button>
+      <button class="trophy-btn" id="settingsBtn" aria-label="Réglages des scores">⚙️</button>
     </div>
   </header>
 
@@ -523,8 +524,15 @@
 <div class="overlay" id="scoresOverlay">
   <div class="card">
     <h2>Meilleurs scores</h2>
-    <p id="fileStatus">Aucun fichier connecté — les scores ne seront pas conservés après fermeture.</p>
     <div class="top-list" id="standaloneTopList"></div>
+    <button id="closeScoresBtn">Fermer</button>
+  </div>
+</div>
+
+<div class="overlay" id="settingsOverlay">
+  <div class="card">
+    <h2>Réglages</h2>
+    <p id="fileStatus">Aucun fichier connecté — les scores ne seront pas conservés après fermeture.</p>
     <div class="file-actions" id="fsButtons">
       <button class="ctl" id="connectFileBtn">📂 Connecter un fichier</button>
       <button class="ctl" id="createFileBtn">🆕 Créer un fichier</button>
@@ -543,7 +551,7 @@
       <input type="password" id="githubToken" class="gh-token" placeholder="Token GitHub (écriture, jamais stocké)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
       <p id="githubStatus" class="gh-status">Mode GitHub inactif</p>
     </div>
-    <button id="closeScoresBtn">Fermer</button>
+    <button id="closeSettingsBtn">Fermer</button>
   </div>
 </div>
 
@@ -978,9 +986,12 @@
   const playerNameInput = document.getElementById('playerName');
   const toastEl = document.getElementById('toast');
   const trophyBtn = document.getElementById('trophyBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
   const scoresOverlay = document.getElementById('scoresOverlay');
+  const settingsOverlay = document.getElementById('settingsOverlay');
   const standaloneTopList = document.getElementById('standaloneTopList');
   const closeScoresBtn = document.getElementById('closeScoresBtn');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
   const fileStatusEl = document.getElementById('fileStatus');
   const connectFileBtn = document.getElementById('connectFileBtn');
   const createFileBtn = document.getElementById('createFileBtn');
@@ -1396,18 +1407,25 @@
   });
 
   function openScores(){
-    updateFileStatus();
-    updateGithubStatus();
     renderTopList(standaloneTopList, gameOver ? lastRecorded : null);
     scoresOverlay.classList.add('show');
+  }
+  function openSettings(){
+    updateFileStatus();
+    updateGithubStatus();
+    settingsOverlay.classList.add('show');
   }
   if(playerNameInput) playerNameInput.addEventListener('input', ()=>{
     playerName = playerNameInput.value;   // mémoire seule, utilisé au prochain recordScore()
   });
   trophyBtn.addEventListener('click', openScores);
+  if(settingsBtn) settingsBtn.addEventListener('click', openSettings);
   if(showScoresBtn) showScoresBtn.addEventListener('click', openScores);
   closeScoresBtn.addEventListener('click', ()=>{
     scoresOverlay.classList.remove('show');
+  });
+  if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', ()=>{
+    settingsOverlay.classList.remove('show');
   });
   if(connectFileBtn) connectFileBtn.addEventListener('click', connectExistingFile);
   if(createFileBtn) createFileBtn.addEventListener('click', createNewFile);
