@@ -1555,6 +1555,12 @@
 
     pieceEl.classList.add('dragging');
     pieceEl.setPointerCapture && pieceEl.setPointerCapture(e.pointerId);
+    // Filet de sécurité : toute perte de capture du pointeur (menu contextuel,
+    // alt-tab, interruption navigateur…) déclenche un nettoyage SANS placement.
+    // { once:true } : cet écouteur ne concerne que ce glisser (l'événement se
+    // déclenche aussi lors du relâchement normal, il est alors sans effet car
+    // dragState a déjà été remis à null par onPointerUp).
+    pieceEl.addEventListener('lostpointercapture', onLostPointerCapture, { once: true });
 
     const lift = e.pointerType === 'touch' ? 90 : 0;
 
@@ -1640,7 +1646,12 @@
     updateDropTarget(e.clientX, e.clientY);
   }
 
-  function onPointerUp(e){
+  // Nettoyage commun à toutes les fins de glisser (relâchement normal,
+  // annulation, perte de capture). Retire la ghost-piece du DOM, efface
+  // l'aperçu sur la grille, détache les écouteurs et restaure l'état de la
+  // pièce d'origine. Ne committe un placement que si commit===true ET qu'une
+  // cible valide (lastAnchor) a été mémorisée.
+  function endDrag(commit){
     if(!dragState) return;
     clearPreview();
     const {piece, pieceEl, ghost, lastAnchor} = dragState;
@@ -1651,11 +1662,30 @@
     document.removeEventListener('pointerup', onPointerUp);
     document.removeEventListener('pointercancel', onPointerUp);
 
-    if(lastAnchor){
+    // Remis à null avant commitPlacement pour éviter toute réentrance.
+    dragState = null;
+
+    if(commit && lastAnchor){
       commitPlacement(piece, lastAnchor[0], lastAnchor[1]);
     }
-    dragState = null;
   }
+
+  function onPointerUp(e){
+    endDrag(true);
+  }
+
+  // Perte de capture du pointeur (clic droit / menu contextuel, alt-tab, etc.) :
+  // même nettoyage qu'un glisser annulé, jamais de placement.
+  function onLostPointerCapture(e){
+    endDrag(false);
+  }
+
+  // Empêche le menu contextuel natif UNIQUEMENT pendant un glisser (sinon il
+  // interrompt la séquence pointer et laisse une ghost-piece orpheline). Aucun
+  // changement de comportement du clic droit en dehors d'un glisser.
+  document.addEventListener('contextmenu', (e)=>{
+    if(dragState) e.preventDefault();
+  });
 
   // --- controls ---
   undoBtn.addEventListener('click', ()=>{
