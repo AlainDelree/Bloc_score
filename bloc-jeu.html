@@ -310,8 +310,20 @@
     .score-float{display:none;}
   }
 
+  /* Badge de combo superposé (façon .flourish, issue #11) : ancré à .board-wrap
+     (position:relative) et positionné en absolute JUSTE AU-DESSUS de la grille,
+     donc hors du flux du document. Son apparition/disparition ne réserve aucun
+     espace et ne déplace donc plus jamais la grille, le tray ni les contrôles.
+     Centrage horizontal explicite (left:50% + translateX) puisqu'on n'est plus
+     en flux normal. pointer-events:none pour ne pas gêner le glisser-déposer. */
   .combo-badge{
     display:none;
+    position:absolute;
+    left:50%;
+    bottom:calc(100% + 8px);
+    transform:translateX(-50%);
+    z-index:20;
+    pointer-events:none;
     align-items:center;
     gap:8px;
     background:var(--coral);
@@ -320,8 +332,7 @@
     font-size:13px;
     padding:7px 14px;
     border-radius:999px;
-    width:fit-content;
-    margin:0 auto 14px;
+    white-space:nowrap;
     box-shadow:0 3px 0 rgba(0,0,0,0.25);
   }
   .combo-badge.show{display:flex;}
@@ -608,9 +619,8 @@
     <div class="big-score-num" id="bigScoreDisplay">0</div>
   </div>
 
-  <div class="combo-badge" id="comboBadge">🔥 <span id="comboText">Combo x2</span></div>
-
   <div class="board-wrap">
+    <div class="combo-badge" id="comboBadge">🔥 <span id="comboText">Combo x2</span></div>
     <div id="grid"></div>
   </div>
 
