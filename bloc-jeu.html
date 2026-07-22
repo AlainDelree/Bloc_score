@@ -260,6 +260,56 @@
     line-height:1.4;
   }
 
+  /* Gros score au-dessus de la grille : seule représentation visuelle du score en cours */
+  .big-score{
+    position:relative;
+    text-align:center;
+    margin:0 0 12px;
+  }
+  .big-score-num{
+    display:inline-block;
+    font-family:'Fraunces', serif;
+    font-weight:900;
+    font-size:66px;
+    line-height:1;
+    letter-spacing:-0.01em;
+    color:var(--mustard);
+    will-change:transform;
+  }
+  @media (max-width:380px){
+    .big-score-num{font-size:52px;}
+  }
+  /* Rebond + flash à chaque hausse (même esprit que @keyframes pop, sans opacité/brightness) */
+  .big-score-num.bump{animation:scoreBump 0.4s ease;}
+  @keyframes scoreBump{
+    0%{transform:scale(1); color:var(--mustard);}
+    50%{transform:scale(1.15); color:var(--coral);}
+    100%{transform:scale(1); color:var(--mustard);}
+  }
+  /* "+N" flottant qui s'élève et s'estompe, puis retiré du DOM par le JS */
+  .score-float{
+    position:absolute;
+    left:50%;
+    top:-6px;
+    transform:translateX(-50%);
+    font-family:'Fraunces', serif;
+    font-weight:800;
+    font-size:24px;
+    color:var(--coral);
+    pointer-events:none;
+    animation:scoreFloat 0.85s ease forwards;
+  }
+  @keyframes scoreFloat{
+    0%{opacity:0; transform:translate(-50%, 8px) scale(0.9);}
+    22%{opacity:1;}
+    100%{opacity:0; transform:translate(-50%, -34px) scale(1.05);}
+  }
+  /* Accessibilité : pas de rebond/flash ni de "+N" si l'utilisateur réduit les animations */
+  @media (prefers-reduced-motion: reduce){
+    .big-score-num.bump{animation:none;}
+    .score-float{display:none;}
+  }
+
   .combo-badge{
     display:none;
     align-items:center;
@@ -501,12 +551,15 @@
     <div class="title">BLOC<small>pas jeu.fr</small></div>
     <div class="scores">
       <div class="row"><input type="text" id="playerName" class="name-input" placeholder="Nom" maxlength="20" autocomplete="off" aria-label="Ton nom (Anonyme si vide)"></div>
-      <div class="row"><span class="num" id="scoreNum">0</span>score</div>
       <div class="row best"><span class="num" id="bestNum">0</span>meilleur</div>
       <button class="trophy-btn" id="trophyBtn" aria-label="Voir les 10 meilleurs scores">🏆</button>
       <button class="trophy-btn" id="settingsBtn" aria-label="Réglages des scores">⚙️</button>
     </div>
   </header>
+
+  <div class="big-score" id="bigScoreWrap">
+    <div class="big-score-num" id="bigScoreDisplay">0</div>
+  </div>
 
   <div class="combo-badge" id="comboBadge">🔥 <span id="comboText">Combo x2</span></div>
 
@@ -1014,6 +1067,7 @@
 
   let grid = [];
   let score = 0;
+  let displayedScore = 0;   // dernier score reflété dans le gros affichage, pour détecter les hausses
   let best = 0;
   let combo = 1;
   let undosLeft = 3;
@@ -1025,7 +1079,8 @@
 
   const gridEl = document.getElementById('grid');
   const trayEl = document.getElementById('tray');
-  const scoreEl = document.getElementById('scoreNum');
+  const bigScoreEl = document.getElementById('bigScoreDisplay');
+  const bigScoreWrap = document.getElementById('bigScoreWrap');
   const bestEl = document.getElementById('bestNum');
   const comboBadge = document.getElementById('comboBadge');
   const comboText = document.getElementById('comboText');
@@ -1299,10 +1354,32 @@
     }
   }
 
+  // Point d'entrée unique de l'affichage du gros score. Met toujours à jour le chiffre ;
+  // si delta>0 (gain), joue le rebond + flash + "+N" flottant — sauf prefers-reduced-motion,
+  // auquel cas seule la valeur est mise à jour (instantanément). Aucune duplication côté
+  // sites d'incrément : tous passent par updateScores() → bumpScore().
+  function bumpScore(delta){
+    bigScoreEl.textContent = score;
+    if(delta <= 0) return;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(reduce) return;
+    // rejoue l'animation même si la classe est déjà présente (retrait + reflow forcé)
+    bigScoreEl.classList.remove('bump');
+    void bigScoreEl.offsetWidth;
+    bigScoreEl.classList.add('bump');
+    // "+N" flottant : ajouté au-dessus du gros score, retiré du DOM à la fin du fade
+    const float = document.createElement('div');
+    float.className = 'score-float';
+    float.textContent = '+' + delta;
+    bigScoreWrap.appendChild(float);
+    setTimeout(()=>float.remove(), 900);
+  }
+
   function updateScores(){
     const persistedBest = topScores.length ? topScores[0].score : 0;
     best = Math.max(persistedBest, score);
-    scoreEl.textContent = score;
+    bumpScore(score - displayedScore);
+    displayedScore = score;
     bestEl.textContent = best;
   }
 
