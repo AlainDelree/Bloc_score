@@ -235,6 +235,31 @@
   .gh-status.write{color:var(--teal);}
   .gh-status.read{color:var(--mustard);}
 
+  .gh-form{margin:0;}
+  .gh-connect{margin-top:8px;}
+  .gh-remember{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    font-size:11px;
+    color:var(--cream);
+    margin-top:10px;
+    cursor:pointer;
+    line-height:1.3;
+  }
+  .gh-remember input{
+    margin:1px 0 0;
+    accent-color:var(--teal);
+    flex:0 0 auto;
+  }
+  .gh-remember-note{
+    font-size:10px;
+    color:var(--cream-dim);
+    opacity:0.8;
+    margin:6px 0 0;
+    line-height:1.4;
+  }
+
   .combo-badge{
     display:none;
     align-items:center;
@@ -548,7 +573,17 @@
         <button class="ctl" id="githubLoadBtn">🌐 Charger (GitHub)</button>
         <button class="ctl" id="githubSaveBtn">💾 Enregistrer (GitHub)</button>
       </div>
-      <input type="password" id="githubToken" class="gh-token" placeholder="Token GitHub (écriture, jamais stocké)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <form id="githubForm" class="gh-form" autocomplete="on">
+        <input type="password" id="githubToken" name="github-token" class="gh-token" placeholder="Token GitHub (écriture)" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="file-actions gh-connect">
+          <button type="submit" class="ctl" id="githubConnectBtn">🔗 Connecter</button>
+        </div>
+        <label class="gh-remember">
+          <input type="checkbox" id="githubRemember">
+          <span>Se souvenir de ce token sur cet appareil</span>
+        </label>
+        <p class="gh-remember-note">Stocké dans ce navigateur. Ton gestionnaire de mots de passe peut aussi proposer de le sauvegarder lui-même.</p>
+      </form>
       <p id="githubStatus" class="gh-status">Mode GitHub inactif</p>
     </div>
     <button id="closeSettingsBtn">Fermer</button>
@@ -613,8 +648,28 @@
   const GH_PATH  = 'scores.json';
   const GH_RAW   = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/main/${GH_PATH}`;
   const GH_API   = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}`;
+  const GH_TOKEN_KEY = 'bloc_gh_token';   // clé localStorage pour la mémorisation opt-in du token
   let githubMode  = false;   // true quand le mode GitHub est actif (exclusif du fichier local)
-  let githubToken = '';      // token en mémoire uniquement, jamais persisté sur disque
+  let githubToken = '';      // token en mémoire ; persisté sur cet appareil seulement si l'utilisateur coche la case
+
+  // Écrit le token dans localStorage si la case « se souvenir » est cochée et le token
+  // non vide ; sinon supprime toute copie précédemment stockée. Appelé à chaque changement
+  // de token ou d'état de la case. try/catch : localStorage peut être indisponible (mode privé).
+  function syncTokenStorage(){
+    try{
+      if(githubRememberInput && githubRememberInput.checked && githubToken){
+        localStorage.setItem(GH_TOKEN_KEY, githubToken);
+      } else {
+        localStorage.removeItem(GH_TOKEN_KEY);
+      }
+    }catch(_){ /* localStorage indisponible : on reste en mémoire seule */ }
+  }
+
+  // Supprime inconditionnellement le token stocké (utilisé sur 401 : un token invalide
+  // ne doit jamais persister après une erreur d'authentification).
+  function clearStoredToken(){
+    try{ localStorage.removeItem(GH_TOKEN_KEY); }catch(_){ /* rien à faire */ }
+  }
 
   const fileTypes = [{description:'Scores BLOC (JSON)', accept:{'application/json':['.json']}}];
 
@@ -699,6 +754,8 @@
       if(res.status === 401){
         githubToken = '';
         if(githubTokenInput) githubTokenInput.value = '';
+        if(githubRememberInput) githubRememberInput.checked = false;
+        clearStoredToken();   // un token invalide ne doit pas persister après un 401
         updateGithubStatus();
         toast('Token GitHub invalide — repassé en lecture seule');
         return;
@@ -709,6 +766,8 @@
       if(e && e.code === 401){
         githubToken = '';
         if(githubTokenInput) githubTokenInput.value = '';
+        if(githubRememberInput) githubRememberInput.checked = false;
+        clearStoredToken();   // un token invalide ne doit pas persister après un 401
         updateGithubStatus();
         toast('Token GitHub invalide — repassé en lecture seule');
         return;
@@ -1004,6 +1063,8 @@
   const githubSaveBtn = document.getElementById('githubSaveBtn');
   const githubTokenInput = document.getElementById('githubToken');
   const githubStatusEl = document.getElementById('githubStatus');
+  const githubForm = document.getElementById('githubForm');
+  const githubRememberInput = document.getElementById('githubRemember');
   if(supportsFS){
     fallbackButtons.style.display = 'none';
   } else {
@@ -1450,7 +1511,19 @@
       updateFileStatus();
     }
     updateGithubStatus();
+    syncTokenStorage();   // garde localStorage aligné si la case « se souvenir » est cochée
   });
+  // Submit du formulaire (Entrée ou clic « Connecter ») : pas de navigation réelle,
+  // on réutilise activateGitHub() tel quel avec le token saisi.
+  if(githubForm) githubForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    githubToken = githubTokenInput ? githubTokenInput.value.trim() : githubToken;
+    if(!githubToken){ toast('Saisis un token GitHub'); return; }
+    syncTokenStorage();
+    activateGitHub();
+  });
+  // Case « se souvenir » : cochée + token non vide → stocke ; décochée → supprime aussitôt.
+  if(githubRememberInput) githubRememberInput.addEventListener('change', syncTokenStorage);
 
   if(nameFixBtn) nameFixBtn.addEventListener('click', submitNameFix);
   if(nameFixInput) nameFixInput.addEventListener('keydown', (e)=>{
@@ -1488,6 +1561,19 @@
   }
 
   startGame();
+
+  // Au chargement : si un token a été mémorisé sur cet appareil, préremplir le champ,
+  // cocher la case, initialiser githubToken et activer le mode GitHub automatiquement.
+  (function restoreStoredToken(){
+    let stored = null;
+    try{ stored = localStorage.getItem(GH_TOKEN_KEY); }catch(_){ stored = null; }
+    if(!stored) return;
+    githubToken = stored;
+    if(githubTokenInput) githubTokenInput.value = stored;
+    if(githubRememberInput) githubRememberInput.checked = true;
+    activateGitHub();
+  })();
+
   window.addEventListener('resize', renderGrid);
 })();
 </script>
