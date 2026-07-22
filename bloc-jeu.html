@@ -638,6 +638,7 @@
       </div>
     </div>
     <div class="overlay-actions">
+      <button id="reviveBtn" class="secondary">🔁 Revivre <span class="cnt" id="reviveCnt">(1)</span></button>
       <button id="playAgainBtn">Rejouer</button>
       <button id="showScoresBtn" class="secondary">Meilleurs scores</button>
       <button id="quitBtn" class="secondary">Quitter</button>
@@ -725,6 +726,9 @@
     return shape.map(([r,c])=>[r-minR, c-minC]);
   }
   const SHAPES = RAW_SHAPES.map(normalize);
+  // Forme 1x1 déjà présente dans RAW_SHAPES ([[0,0]]) : réutilisée pour le tray de secours
+  // du "Revivre" plutôt que d'en coder une nouvelle.
+  const SHAPE_1x1 = SHAPES.find(s => s.length === 1);
 
   function shapeBounds(shape){
     const h = Math.max(...shape.map(c=>c[0])) + 1;
@@ -1117,6 +1121,7 @@
   let combo = 1;
   let undosLeft = 3;
   let shufflesLeft = 2;
+  let revivesLeft = 1;
   let history = null;
   let tray = [];
   let dragState = null;
@@ -1142,6 +1147,8 @@
   const nameFixInput = document.getElementById('nameFixInput');
   const nameFixBtn = document.getElementById('nameFixBtn');
   const playAgainBtn = document.getElementById('playAgainBtn');
+  const reviveBtn = document.getElementById('reviveBtn');
+  const reviveCnt = document.getElementById('reviveCnt');
   const showScoresBtn = document.getElementById('showScoresBtn');
   const playerNameInput = document.getElementById('playerName');
   const toastEl = document.getElementById('toast');
@@ -1185,6 +1192,13 @@
 
   function newTray(){
     return [randomPiece(), randomPiece(), randomPiece()];
+  }
+
+  // Pièce 1x1 (forme fixe SHAPE_1x1, couleur aléatoire comme d'habitude) : sert au tray
+  // de secours du "Revivre".
+  function oneByOnePiece(){
+    const color = COLORS[Math.floor(Math.random()*COLORS.length)];
+    return {shape: SHAPE_1x1, color, used:false, id: Math.random().toString(36).slice(2)};
   }
 
   function toast(msg){
@@ -1296,8 +1310,36 @@
       renderTopList(finalTopList, lastRecorded);
       offerNameFix();
       updateScores();
+      updateReviveBtn();
       overlay.classList.add('show');
     }
+  }
+
+  // Affiche/masque le bouton "Revivre" et son compteur : visible seulement s'il reste
+  // au moins une utilisation (même modèle que undo/shuffle, mais masqué à 0 côté overlay).
+  function updateReviveBtn(){
+    if(!reviveBtn) return;
+    if(reviveCnt) reviveCnt.textContent = `(${revivesLeft})`;
+    reviveBtn.style.display = revivesLeft>0 ? '' : 'none';
+  }
+
+  // "Revivre" (issue #12) : garde la grille/score/combo strictement inchangés, remplace le
+  // tray par trois pièces 1x1 pour garantir une reprise, et réactive le glisser-déposer.
+  // Cas limite : si même un 1x1 ne rentre nulle part, on ne consomme rien et l'overlay reste.
+  function revive(){
+    if(revivesLeft<=0) return;
+    if(!anyValidPosition(SHAPE_1x1)){
+      toast('Plus aucune case libre — impossible de revivre');
+      return;
+    }
+    revivesLeft--;
+    overlay.classList.remove('show');   // pas de startGame() : grille/score/combo intacts
+    tray = [oneByOnePiece(), oneByOnePiece(), oneByOnePiece()];
+    gameOver = false;                   // réactive le glisser-déposer
+    history = null;                     // pas d'annulation vers l'état "partie finie"
+    renderTray();
+    updateReviveBtn();
+    toast('Reprise ! Trois pièces 1×1');
   }
 
   function fullLinesWith(shape, anchorR, anchorC){
@@ -1691,6 +1733,7 @@
     overlay.classList.remove('show');
     startGame();
   });
+  if(reviveBtn) reviveBtn.addEventListener('click', revive);
   const quitBtn = document.getElementById('quitBtn');
   quitBtn.addEventListener('click', ()=>{
     overlay.classList.remove('show');
@@ -1702,6 +1745,7 @@
     combo = 1;
     undosLeft = 3;
     shufflesLeft = 2;
+    revivesLeft = 1;
     history = null;
     gameOver = false;
     tray = newTray();
@@ -1709,6 +1753,7 @@
     shuffleBtn.disabled = false;
     undoCnt.textContent = `(${undosLeft})`;
     shuffleCnt.textContent = `(${shufflesLeft})`;
+    updateReviveBtn();
     comboBadge.classList.remove('show');
     overlay.classList.remove('show');
     renderGrid();
