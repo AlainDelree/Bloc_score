@@ -616,12 +616,20 @@
 
   // fusionne deux listes de {score,date,name} en dédupliquant, puis tri/troncature
   // (name absent dans les anciennes entrées → traité comme "Anonyme")
+  // Clé de dédup = date + '|' + score uniquement (le name en est exclu) : ainsi une
+  // correction de nom après coup (Anonyme → nom réel) est fusionnée avec l'entrée
+  // d'origine au lieu de créer un doublon. En cas de conflit sur une même clé, la
+  // version nommée l'emporte sur "Anonyme" ; sinon la dernière traitée l'emporte.
   function mergeScores(a, b){
     const merged = {};
     a.concat(b).forEach(e=>{
       if(e && typeof e.score==='number'){
         const name = e.name || 'Anonyme';
-        merged[(e.date||'') + '|' + e.score + '|' + name] = {score:e.score, date:e.date, name:name};
+        const key = (e.date||'') + '|' + e.score;
+        const prev = merged[key];
+        // Garder l'entrée nommée face à une "Anonyme" ; à défaut, la dernière traitée.
+        if(prev && prev.name !== 'Anonyme' && name === 'Anonyme') return;
+        merged[key] = {score:e.score, date:e.date, name:name};
       }
     });
     return sortAndTrim(Object.values(merged));
