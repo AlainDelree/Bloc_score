@@ -426,6 +426,41 @@
     border:1px solid var(--line);
   }
 
+  .name-fix{
+    display:none;
+    margin:0 0 18px;
+  }
+  .name-fix.show{display:block;}
+  .name-fix-label{
+    display:block;
+    font-size:12px;
+    color:var(--cream);
+    margin-bottom:8px;
+  }
+  .name-fix-row{
+    display:flex;
+    gap:8px;
+  }
+  .name-fix-input{
+    flex:1;
+    min-width:0;
+    background:var(--ink-3);
+    color:var(--cream);
+    border:none;
+    border-radius:9px;
+    padding:10px 12px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    box-shadow:inset 0 0 0 2px var(--line);
+  }
+  .name-fix-input:focus-visible{outline:2px solid var(--mustard);outline-offset:2px;}
+  .name-fix-input::placeholder{color:var(--cream-dim);}
+  .name-fix-btn{
+    flex:0 0 auto;
+    padding:10px 18px !important;
+    font-size:13px !important;
+  }
+
   footer.note{
     margin-top:18px;
     font-size:11px;
@@ -470,6 +505,13 @@
     <p>Plus aucune des trois pièces ne rentre sur la grille.</p>
     <div class="final-score" id="finalScore">0</div>
     <div class="top-list" id="finalTopList"></div>
+    <div class="name-fix" id="nameFix">
+      <label class="name-fix-label" for="nameFixInput">Tu es classé ! Ajouter ton nom :</label>
+      <div class="name-fix-row">
+        <input type="text" id="nameFixInput" class="name-fix-input" maxlength="20" autocomplete="off" placeholder="Ton nom" aria-label="Ajouter ton nom à ce score">
+        <button id="nameFixBtn" class="name-fix-btn">Valider</button>
+      </div>
+    </div>
     <div class="overlay-actions">
       <button id="playAgainBtn">Rejouer</button>
       <button id="showScoresBtn" class="secondary">Meilleurs scores</button>
@@ -851,6 +893,50 @@
     el.appendChild(table);
   }
 
+  // Retrouve dans topScores l'entrée "Anonyme" qui vient d'être créée (lastRecorded),
+  // ciblée par score+date (pas par position, le tableau ayant pu être re-trié/fusionné).
+  function findAnonymousRecorded(){
+    if(!lastRecorded) return null;
+    if((lastRecorded.name || 'Anonyme') !== 'Anonyme') return null;
+    return topScores.find(e =>
+      e.score === lastRecorded.score &&
+      e.date === lastRecorded.date &&
+      (e.name || 'Anonyme') === 'Anonyme') || null;
+  }
+
+  // Affiche le champ de correction de nom seulement si le score du jour est classé
+  // (présent dans topScores, déjà tronqué au top 10) ET encore "Anonyme".
+  function offerNameFix(){
+    if(!nameFix) return;
+    if(findAnonymousRecorded()){
+      nameFixInput.value = '';
+      nameFix.classList.add('show');
+    } else {
+      nameFix.classList.remove('show');
+    }
+  }
+
+  // Valide le nom saisi après coup : met à jour CETTE entrée + playerName, re-persiste
+  // selon le mode actif, puis rafraîchit les affichages. Champ vide = aucune action.
+  function submitNameFix(){
+    const val = nameFixInput.value.trim();
+    if(!val) return;
+    const target = findAnonymousRecorded();
+    if(!target){ nameFix.classList.remove('show'); return; }
+    target.name = val;
+    lastRecorded = target;                 // garde l'identité alignée (désormais non-anonyme)
+    playerName = val;                      // nom par défaut pour les prochaines parties
+    if(playerNameInput) playerNameInput.value = val;
+    if(githubMode) writeToGitHub(target.score);   // réécrit sans dupliquer (mergeScores dédup.)
+    else if(fileHandle) writeToDisk();
+    renderTopList(finalTopList, lastRecorded);
+    if(scoresOverlay.classList.contains('show')){
+      renderTopList(standaloneTopList, lastRecorded);
+    }
+    nameFix.classList.remove('show');
+    toast('Nom ajouté à ton score');
+  }
+
   let grid = [];
   let score = 0;
   let best = 0;
@@ -876,6 +962,9 @@
   const overlay = document.getElementById('overlay');
   const finalScoreEl = document.getElementById('finalScore');
   const finalTopList = document.getElementById('finalTopList');
+  const nameFix = document.getElementById('nameFix');
+  const nameFixInput = document.getElementById('nameFixInput');
+  const nameFixBtn = document.getElementById('nameFixBtn');
   const playAgainBtn = document.getElementById('playAgainBtn');
   const showScoresBtn = document.getElementById('showScoresBtn');
   const playerNameInput = document.getElementById('playerName');
@@ -1010,6 +1099,7 @@
       finalScoreEl.textContent = score;
       recordScore(score);
       renderTopList(finalTopList, lastRecorded);
+      offerNameFix();
       updateScores();
       overlay.classList.add('show');
     }
@@ -1334,6 +1424,11 @@
       updateFileStatus();
     }
     updateGithubStatus();
+  });
+
+  if(nameFixBtn) nameFixBtn.addEventListener('click', submitNameFix);
+  if(nameFixInput) nameFixInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){ e.preventDefault(); submitNameFix(); }
   });
 
   restartBtn.addEventListener('click', startGame);
