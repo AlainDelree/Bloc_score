@@ -425,6 +425,7 @@
     align-items:center;
     justify-content:center;
     box-shadow: inset 0 0 0 2px var(--line);
+    touch-action:none;
   }
   .piece-slot.empty{opacity:0.35;}
   .piece{
@@ -1275,7 +1276,11 @@
           }
         }
         slot.appendChild(pieceEl);
-        pieceEl.addEventListener('pointerdown', (e)=>onPieceDown(e, piece));
+        // Écouteur sur tout le conteneur (.piece-slot) et pas seulement sur les
+        // cellules colorées : cliquer n'importe où dans l'emplacement déclenche
+        // la prise. Attaché uniquement pour les emplacements occupés (!used) ;
+        // les emplacements vides ne reçoivent aucun écouteur.
+        slot.addEventListener('pointerdown', (e)=>onPieceDown(e, piece));
       }
       trayEl.appendChild(slot);
     });
@@ -1509,7 +1514,10 @@
   function onPieceDown(e, piece){
     if(gameOver || piece.used) return;
     e.preventDefault();
-    const pieceEl = e.currentTarget;
+    // e.currentTarget est désormais le conteneur .piece-slot : on récupère
+    // l'élément .piece réel (boîte englobante de la forme) pour les calculs.
+    const pieceEl = e.currentTarget.querySelector('.piece');
+    if(!pieceEl) return;
     const rect = pieceEl.getBoundingClientRect();
     const cellPx = rect.width / shapeBounds(piece.shape).w;
 
@@ -1542,8 +1550,11 @@
 
     dragState = {
       piece, pieceEl, ghost, cellPx,
-      offsetX: rect.width/2,
-      offsetY: rect.height/2,
+      // Point d'ancrage naturel : position réelle du pointeur par rapport au
+      // coin haut-gauche de la pièce, pour que le point attrapé reste sous le
+      // curseur pendant tout le déplacement (pas de recentrage à la prise).
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
       lift,
       lastAnchor: null,
       lastCells: []
