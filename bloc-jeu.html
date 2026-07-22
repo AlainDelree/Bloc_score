@@ -623,7 +623,6 @@
     <div class="gh-block" id="githubBlock">
       <div class="gh-sep">— ou dépôt GitHub (tous navigateurs) —</div>
       <div class="file-actions">
-        <button class="ctl" id="githubLoadBtn">🌐 Charger (GitHub)</button>
         <button class="ctl" id="githubSaveBtn">💾 Enregistrer (GitHub)</button>
       </div>
       <form id="githubForm" class="gh-form" autocomplete="on">
@@ -1114,7 +1113,6 @@
   const importInput = document.getElementById('importInput');
   const fsButtons = document.getElementById('fsButtons');
   const fallbackButtons = document.getElementById('fallbackButtons');
-  const githubLoadBtn = document.getElementById('githubLoadBtn');
   const githubSaveBtn = document.getElementById('githubSaveBtn');
   const githubTokenInput = document.getElementById('githubToken');
   const githubStatusEl = document.getElementById('githubStatus');
@@ -1573,7 +1571,6 @@
     if(e.target.files[0]) importScores(e.target.files[0]);
     importInput.value = '';
   });
-  if(githubLoadBtn) githubLoadBtn.addEventListener('click', activateGitHub);
   if(githubSaveBtn) githubSaveBtn.addEventListener('click', ()=>{
     if(!githubMode){ toast('Charge d’abord depuis GitHub (🌐)'); return; }
     if(!githubToken){ toast('Saisis un token GitHub pour écrire'); return; }
