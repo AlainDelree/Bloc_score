@@ -326,6 +326,52 @@
   }
   .combo-badge.show{display:flex;}
 
+  /* Texte stylé "tamponné" surgissant SUR la grille à chaque clear (façon jeu.fr).
+     Ancré sur .board-wrap (position:relative), centré = centré sur #grid (grille carrée,
+     padding symétrique). pointer-events:none pour ne pas gêner le glisser-déposer.
+     --flr-rot : rotation aléatoire injectée par le JS, reprise dans chaque keyframe. */
+  .flourish{
+    position:absolute;
+    left:50%;
+    top:50%;
+    z-index:20;
+    pointer-events:none;
+    font-family:'Fraunces', serif;
+    font-weight:900;
+    font-size:38px;
+    letter-spacing:0.01em;
+    line-height:1;
+    text-align:center;
+    white-space:nowrap;
+    color:var(--cream);
+    padding:8px 20px;
+    border-radius:12px;
+    background:rgba(20,12,32,0.55);
+    text-shadow:0 3px 12px rgba(0,0,0,0.65), 0 1px 0 rgba(0,0,0,0.8);
+    opacity:0;
+    will-change:transform, opacity;
+    transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(0.5);
+    animation:flourishPop 1s ease forwards;
+  }
+  @media (max-width:380px){
+    .flourish{font-size:30px;}
+  }
+  @keyframes flourishPop{
+    0%{opacity:0; transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(0.5);}
+    18%{opacity:1; transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(1.1);}
+    32%{transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(1);}
+    72%{opacity:1; transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(1);}
+    100%{opacity:0; transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(1);}
+  }
+  /* Accessibilité : affichage instantané bref sans animation (même esprit que le gros score) */
+  @media (prefers-reduced-motion: reduce){
+    .flourish{
+      animation:none;
+      opacity:1;
+      transform:translate(-50%,-50%) rotate(var(--flr-rot,0deg)) scale(1);
+    }
+  }
+
   .board-wrap{
     position:relative;
     background:var(--ink-2);
@@ -1077,6 +1123,7 @@
   let gameOver = false;
 
   const gridEl = document.getElementById('grid');
+  const boardWrap = document.querySelector('.board-wrap');
   const trayEl = document.getElementById('tray');
   const bigScoreEl = document.getElementById('bigScoreDisplay');
   const bigScoreWrap = document.getElementById('bigScoreWrap');
@@ -1145,6 +1192,21 @@
     toastEl.classList.add('show');
     clearTimeout(toast._t);
     toast._t = setTimeout(()=>toastEl.classList.remove('show'), 1400);
+  }
+
+  // Texte stylé animé superposé SUR la grille lors d'un clear (effet qualitatif, en plus
+  // du toast chiffré). Rotation aléatoire -6..6° pour l'effet "tamponné", puis retrait du
+  // DOM à la fin de l'anim (~1s). L'anim et le prefers-reduced-motion sont gérés en CSS.
+  function showFlourish(text, color){
+    const el = document.createElement('div');
+    el.className = 'flourish';
+    el.textContent = text;
+    el.style.color = `var(--${color})`;
+    const rot = (Math.random()*12 - 6).toFixed(1);
+    el.style.setProperty('--flr-rot', rot + 'deg');
+    el.setAttribute('aria-hidden', 'true');
+    boardWrap.appendChild(el);
+    setTimeout(()=>el.remove(), 1100);
   }
 
   function renderGrid(){
@@ -1318,6 +1380,26 @@
         msg = `💥 Éclatement ${COLOR_NAMES_FR[burstColor]||burstColor} x${burstCount} ! +${bonus}`;
       }
       toast(msg);
+
+      // Flourish superposé sur la grille : un seul message selon la priorité
+      // éclatement > multi-lignes > combo > ligne simple (cf. issue #11).
+      let flourishText, flourishColor;
+      if(burstBonus > 0){
+        flourishText = 'ÉCLATANT !';
+        flourishColor = 'coral';
+      } else if(linesCleared >= 2){
+        flourishText = linesCleared === 2 ? 'DOUBLE !'
+                     : linesCleared === 3 ? 'TRIPLE !'
+                     : 'MULTI !';
+        flourishColor = 'teal';
+      } else if(combo > 1){
+        flourishText = `COMBO x${combo}`;
+        flourishColor = 'mustard';
+      } else {
+        flourishText = 'LIGNE !';
+        flourishColor = 'teal';
+      }
+      showFlourish(flourishText, flourishColor);
 
       setTimeout(()=>{
         toClear.forEach(key=>{
