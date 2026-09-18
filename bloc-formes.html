@@ -308,7 +308,8 @@
       });
       if (!neighborZoneIds.size) continue; // pas de voisin (ne devrait pas arriver)
       const options = [...neighborZoneIds];
-      const target = zones.find(zz => zz.id === options[randInt(options.length)]);
+      const targetId = options[randInt(options.length)];
+      const target = zones.find(zz => zz.id === targetId);
       target.cells.push(...z.cells);
       z.cells.forEach(id => { cellZone[id] = target.id; });
       zones.splice(i, 1);
